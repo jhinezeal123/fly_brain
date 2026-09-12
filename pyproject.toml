@@ -1,0 +1,13 @@
+[project]
+name = "fly-depth"
+version = "0.1.0"
+description = "Fly-inspired motion depth estimation sandbox"
+requires-python = ">=3.10"
+dependencies = ["torch>=2.2", "PyYAML>=6.0"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
