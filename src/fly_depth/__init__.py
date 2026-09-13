@@ -1,4 +1,6 @@
-from .connectome import ConnectomeEncoder
-from .model import DepthHead
+from __future__ import annotations
 
-__all__ = ["ConnectomeEncoder", "DepthHead"]
+# Package exports stay intentionally small; scripts are the public workflow.
+from .model import DepthHead, FlyDepthModel, MaleCNSVisualModel
+
+__all__ = ["MaleCNSVisualModel", "DepthHead", "FlyDepthModel"]

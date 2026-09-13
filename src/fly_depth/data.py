@@ -7,6 +7,7 @@ import numpy as np
 import scipy.io
 import torch
 import torch.nn.functional as F
+from torch.utils.data import Dataset
 
 NYU_URL = "https://horatio.cs.nyu.edu/mit/silberman/nyu_depth_v2/nyu_depth_v2_labeled.mat"
 NYU_SPLITS_URL = "https://horatio.cs.nyu.edu/mit/silberman/indoor_seg_sup/splits.mat"
@@ -33,17 +34,25 @@ class NYUv2:
         f = self._file()
         image = np.asarray(f["images"][index])
         depth = np.asarray(f["depths"][index], dtype=np.float32)
-
-        # MATLAB v7.3 arrays are exposed by h5py with reversed spatial axes.
         if image.shape[0] == 3:
             image = np.transpose(image, (2, 1, 0))
         if depth.shape[0] != image.shape[0]:
             depth = depth.T
-
         return image.astype(np.uint8), depth.astype(np.float32)
 
-    @staticmethod
-    def resize_depth(depth: np.ndarray, size: tuple[int, int]) -> np.ndarray:
-        tensor = torch.from_numpy(depth)[None, None]
-        resized = F.interpolate(tensor, size=size, mode="bilinear", align_corners=False)
-        return resized[0, 0].numpy()
+
+class NYUv2Dataset(Dataset):
+    def __init__(self, store: NYUv2, split: str, output_size: tuple[int, int]) -> None:
+        self.store = store
+        self.ids = store.indices(split)
+        self.output_size = tuple(output_size)
+
+    def __len__(self) -> int:
+        return len(self.ids)
+
+    def __getitem__(self, item: int) -> tuple[torch.Tensor, torch.Tensor]:
+        image, depth = self.store.get(int(self.ids[item]))
+        image_t = torch.from_numpy(image.copy()).permute(2, 0, 1).float() / 255.0
+        depth_t = torch.from_numpy(depth.copy())[None, None]
+        depth_t = F.interpolate(depth_t, size=self.output_size, mode="bilinear", align_corners=False)[0]
+        return image_t, depth_t
