@@ -8,7 +8,7 @@ import yaml
 from torch import nn
 from torch.utils.data import DataLoader
 
-from fly_depth.data import SyntheticMotionDepthDataset
+from fly_depth.data import SyntheticImageDepthDataset
 from fly_depth.model import FlyDepthModel
 
 
@@ -21,7 +21,7 @@ def main() -> None:
     torch.manual_seed(cfg.get("seed", 0))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    dataset = SyntheticMotionDepthDataset(
+    dataset = SyntheticImageDepthDataset(
         length=cfg["data"]["samples"],
         size=cfg["data"]["image_size"],
     )
@@ -37,9 +37,9 @@ def main() -> None:
     for epoch in range(1, cfg["train"]["epochs"] + 1):
         model.train()
         total_loss = 0.0
-        for frame0, frame1, depth in loader:
-            frame0, frame1, depth = frame0.to(device), frame1.to(device), depth.to(device)
-            pred = model(frame0, frame1)
+        for image, depth in loader:
+            image, depth = image.to(device), depth.to(device)
+            pred = model(image)
             loss = loss_fn(pred, depth)
 
             optimizer.zero_grad()
