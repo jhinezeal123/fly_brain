@@ -1,45 +1,49 @@
 from __future__ import annotations
 
-import random
+from pathlib import Path
 
+import h5py
+import numpy as np
+import scipy.io
 import torch
-from torch.utils.data import Dataset
+import torch.nn.functional as F
+
+NYU_URL = "https://horatio.cs.nyu.edu/mit/silberman/nyu_depth_v2/nyu_depth_v2_labeled.mat"
+NYU_SPLITS_URL = "https://horatio.cs.nyu.edu/mit/silberman/indoor_seg_sup/splits.mat"
 
 
-class SyntheticImageDepthDataset(Dataset):
-    """Tiny monocular dataset with visible foreground/background depth cues."""
+class NYUv2:
+    """Official NYU Depth V2 labeled RGB-D data and official 795/654 split."""
 
-    def __init__(self, length: int = 512, size: int = 64) -> None:
-        self.length = length
-        self.size = size
+    def __init__(self, mat_path: Path, splits_path: Path) -> None:
+        self.mat_path = Path(mat_path)
+        self.splits = scipy.io.loadmat(splits_path)
+        self._h5: h5py.File | None = None
 
-    def __len__(self) -> int:
-        return self.length
+    def indices(self, split: str) -> np.ndarray:
+        key = {"train": "trainNdxs", "test": "testNdxs"}[split]
+        return np.asarray(self.splits[key]).reshape(-1).astype(np.int64) - 1
 
-    def __getitem__(self, index: int):
-        _ = index
-        h = w = self.size
+    def _file(self) -> h5py.File:
+        if self._h5 is None:
+            self._h5 = h5py.File(self.mat_path, "r")
+        return self._h5
 
-        # Far background: dim, noisy texture.
-        image = 0.15 + 0.15 * torch.rand(3, h, w)
-        depth = torch.ones(1, h, w)
+    def get(self, index: int) -> tuple[np.ndarray, np.ndarray]:
+        f = self._file()
+        image = np.asarray(f["images"][index])
+        depth = np.asarray(f["depths"][index], dtype=np.float32)
 
-        # Nearer objects are larger and brighter, giving the single image
-        # simple monocular cues that a tiny model can learn.
-        near_depth = random.uniform(0.2, 0.7)
-        scale = 1.0 - near_depth
-        min_side = max(4, int(self.size * (0.15 + 0.25 * scale)))
-        max_side = max(min_side + 1, int(self.size * (0.25 + 0.40 * scale)))
+        # MATLAB v7.3 arrays are exposed by h5py with reversed spatial axes.
+        if image.shape[0] == 3:
+            image = np.transpose(image, (2, 1, 0))
+        if depth.shape[0] != image.shape[0]:
+            depth = depth.T
 
-        box_h = random.randint(min_side, min(max_side, h - 1))
-        box_w = random.randint(min_side, min(max_side, w - 1))
-        y0 = random.randint(0, h - box_h)
-        x0 = random.randint(0, w - box_w)
+        return image.astype(np.uint8), depth.astype(np.float32)
 
-        color = torch.rand(3, 1, 1) * 0.35 + (0.55 + 0.25 * scale)
-        patch = color.expand(3, box_h, box_w).clone()
-        patch += 0.05 * torch.rand_like(patch)
-        image[:, y0 : y0 + box_h, x0 : x0 + box_w] = patch.clamp(0.0, 1.0)
-        depth[:, y0 : y0 + box_h, x0 : x0 + box_w] = near_depth
-
-        return image, depth
+    @staticmethod
+    def resize_depth(depth: np.ndarray, size: tuple[int, int]) -> np.ndarray:
+        tensor = torch.from_numpy(depth)[None, None]
+        resized = F.interpolate(tensor, size=size, mode="bilinear", align_corners=False)
+        return resized[0, 0].numpy()

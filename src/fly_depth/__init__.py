@@ -1,3 +1,4 @@
-from .model import FlyDepthModel
+from .connectome import ConnectomeEncoder
+from .model import DepthHead
 
-__all__ = ["FlyDepthModel"]
+__all__ = ["ConnectomeEncoder", "DepthHead"]

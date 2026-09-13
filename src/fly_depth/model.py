@@ -2,69 +2,34 @@ from __future__ import annotations
 
 import torch
 from torch import nn
-import torch.nn.functional as F
 
 
-class RetinaImageEncoder(nn.Module):
-    """Encode one RGB image into compact retina-like visual features."""
+class DepthHead(nn.Module):
+    """The only trainable part of the experiment."""
 
-    def __init__(self, channels: int = 32) -> None:
+    def __init__(self, feature_dim: int, hidden: int, output_size: tuple[int, int]) -> None:
         super().__init__()
+        self.output_size = output_size
         self.net = nn.Sequential(
-            nn.Conv2d(3, channels, 5, stride=2, padding=2),
+            nn.Linear(feature_dim, hidden),
             nn.GELU(),
-            nn.Conv2d(channels, channels, 3, padding=1),
-            nn.GELU(),
+            nn.Linear(hidden, output_size[0] * output_size[1]),
         )
 
-    def forward(self, image: torch.Tensor) -> torch.Tensor:
-        return self.net(image)
+    def forward(self, features: torch.Tensor) -> torch.Tensor:
+        log_depth = self.net(features)
+        return log_depth.view(-1, 1, *self.output_size)
 
 
-class FlyVisualEncoder(nn.Module):
-    """Placeholder for a future MaleCNS/connectome-derived visual encoder.
-
-    Keep this interface stable: input is retina features, output is neural activity.
-    """
-
-    def __init__(self, channels: int = 32, activity_dim: int = 64) -> None:
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(channels, activity_dim, 1),
-            nn.GELU(),
-            nn.Conv2d(activity_dim, activity_dim, 3, padding=1, groups=activity_dim),
-            nn.GELU(),
-        )
-
-    def forward(self, retina_features: torch.Tensor) -> torch.Tensor:
-        return self.net(retina_features)
-
-
-class DepthDecoder(nn.Module):
-    def __init__(self, activity_dim: int = 64) -> None:
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(activity_dim, 32, 3, padding=1),
-            nn.GELU(),
-            nn.Conv2d(32, 1, 1),
-        )
-
-    def forward(self, activity: torch.Tensor, output_size: tuple[int, int]) -> torch.Tensor:
-        depth = self.net(activity)
-        depth = F.interpolate(depth, size=output_size, mode="bilinear", align_corners=False)
-        return torch.sigmoid(depth)
-
-
-class FlyDepthModel(nn.Module):
-    """RGB image -> fly-style visual activity -> relative depth in [0, 1]."""
-
-    def __init__(self, channels: int = 32, activity_dim: int = 64) -> None:
-        super().__init__()
-        self.retina = RetinaImageEncoder(channels)
-        self.fly = FlyVisualEncoder(channels, activity_dim)
-        self.decoder = DepthDecoder(activity_dim)
-
-    def forward(self, image: torch.Tensor) -> torch.Tensor:
-        retina_features = self.retina(image)
-        activity = self.fly(retina_features)
-        return self.decoder(activity, image.shape[-2:])
+def depth_metrics(pred: torch.Tensor, target: torch.Tensor) -> dict[str, float]:
+    pred = pred.clamp(0.1, 10.0)
+    target = target.clamp(0.1, 10.0)
+    abs_rel = ((pred - target).abs() / target).mean()
+    rmse = torch.sqrt(((pred - target) ** 2).mean())
+    ratio = torch.maximum(pred / target, target / pred)
+    delta1 = (ratio < 1.25).float().mean()
+    return {
+        "abs_rel": float(abs_rel),
+        "rmse": float(rmse),
+        "delta1": float(delta1),
+    }

@@ -1,14 +1,18 @@
 seed: 0
 
 data:
-  samples: 256
-  image_size: 64
+  dir: data
+
+connectome:
+  steps: 4
+  batch_size: 8
 
 model:
-  retina_channels: 32
-  activity_dim: 64
+  hidden: 256
+  output_size: [24, 32]
 
 train:
-  batch_size: 16
-  epochs: 3
+  batch_size: 32
+  epochs: 50
   lr: 0.001
+  weight_decay: 0.0001
