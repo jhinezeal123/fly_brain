@@ -1,14 +1,25 @@
 seed: 0
 
 data:
-  samples: 256
-  image_size: 64
+  dir: data
+
+connectome:
+  steps: 8
+  dt: 0.02
+  tau_init: 0.05
+  min_tau: 0.005
+  rate_max: 5.0
+  input_gain: 1.0
 
 model:
-  retina_channels: 32
-  activity_dim: 64
+  hidden: 256
+  output_size: [24, 32]
 
 train:
-  batch_size: 16
-  epochs: 3
-  lr: 0.001
+  batch_size: 1
+  epochs: 30
+  brain_lr: 0.0003
+  head_lr: 0.001
+  weight_decay: 0.0001
+  biology_reg: 0.001
+  grad_clip: 1.0

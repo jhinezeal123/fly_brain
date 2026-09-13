@@ -1,45 +1,58 @@
 from __future__ import annotations
 
-import random
+from pathlib import Path
 
+import h5py
+import numpy as np
+import scipy.io
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset
 
+NYU_URL = "https://horatio.cs.nyu.edu/mit/silberman/nyu_depth_v2/nyu_depth_v2_labeled.mat"
+NYU_SPLITS_URL = "https://horatio.cs.nyu.edu/mit/silberman/indoor_seg_sup/splits.mat"
 
-class SyntheticImageDepthDataset(Dataset):
-    """Tiny monocular dataset with visible foreground/background depth cues."""
 
-    def __init__(self, length: int = 512, size: int = 64) -> None:
-        self.length = length
-        self.size = size
+class NYUv2:
+    """Official NYU Depth V2 labeled RGB-D data and official 795/654 split."""
+
+    def __init__(self, mat_path: Path, splits_path: Path) -> None:
+        self.mat_path = Path(mat_path)
+        self.splits = scipy.io.loadmat(splits_path)
+        self._h5: h5py.File | None = None
+
+    def indices(self, split: str) -> np.ndarray:
+        key = {"train": "trainNdxs", "test": "testNdxs"}[split]
+        return np.asarray(self.splits[key]).reshape(-1).astype(np.int64) - 1
+
+    def _file(self) -> h5py.File:
+        if self._h5 is None:
+            self._h5 = h5py.File(self.mat_path, "r")
+        return self._h5
+
+    def get(self, index: int) -> tuple[np.ndarray, np.ndarray]:
+        f = self._file()
+        image = np.asarray(f["images"][index])
+        depth = np.asarray(f["depths"][index], dtype=np.float32)
+        if image.shape[0] == 3:
+            image = np.transpose(image, (2, 1, 0))
+        if depth.shape[0] != image.shape[0]:
+            depth = depth.T
+        return image.astype(np.uint8), depth.astype(np.float32)
+
+
+class NYUv2Dataset(Dataset):
+    def __init__(self, store: NYUv2, split: str, output_size: tuple[int, int]) -> None:
+        self.store = store
+        self.ids = store.indices(split)
+        self.output_size = tuple(output_size)
 
     def __len__(self) -> int:
-        return self.length
+        return len(self.ids)
 
-    def __getitem__(self, index: int):
-        _ = index
-        h = w = self.size
-
-        # Far background: dim, noisy texture.
-        image = 0.15 + 0.15 * torch.rand(3, h, w)
-        depth = torch.ones(1, h, w)
-
-        # Nearer objects are larger and brighter, giving the single image
-        # simple monocular cues that a tiny model can learn.
-        near_depth = random.uniform(0.2, 0.7)
-        scale = 1.0 - near_depth
-        min_side = max(4, int(self.size * (0.15 + 0.25 * scale)))
-        max_side = max(min_side + 1, int(self.size * (0.25 + 0.40 * scale)))
-
-        box_h = random.randint(min_side, min(max_side, h - 1))
-        box_w = random.randint(min_side, min(max_side, w - 1))
-        y0 = random.randint(0, h - box_h)
-        x0 = random.randint(0, w - box_w)
-
-        color = torch.rand(3, 1, 1) * 0.35 + (0.55 + 0.25 * scale)
-        patch = color.expand(3, box_h, box_w).clone()
-        patch += 0.05 * torch.rand_like(patch)
-        image[:, y0 : y0 + box_h, x0 : x0 + box_w] = patch.clamp(0.0, 1.0)
-        depth[:, y0 : y0 + box_h, x0 : x0 + box_w] = near_depth
-
-        return image, depth
+    def __getitem__(self, item: int) -> tuple[torch.Tensor, torch.Tensor]:
+        image, depth = self.store.get(int(self.ids[item]))
+        image_t = torch.from_numpy(image.copy()).permute(2, 0, 1).float() / 255.0
+        depth_t = torch.from_numpy(depth.copy())[None, None]
+        depth_t = F.interpolate(depth_t, size=self.output_size, mode="bilinear", align_corners=False)[0]
+        return image_t, depth_t
