@@ -1,0 +1,14 @@
+seed: 0
+
+data:
+  samples: 256
+  image_size: 64
+
+model:
+  retina_channels: 32
+  activity_dim: 64
+
+train:
+  batch_size: 16
+  epochs: 3
+  lr: 0.001
