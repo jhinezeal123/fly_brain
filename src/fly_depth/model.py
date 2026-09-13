@@ -5,21 +5,20 @@ from torch import nn
 import torch.nn.functional as F
 
 
-class RetinaMotionEncoder(nn.Module):
-    """Encode two RGB frames into a compact motion-aware representation."""
+class RetinaImageEncoder(nn.Module):
+    """Encode one RGB image into compact retina-like visual features."""
 
     def __init__(self, channels: int = 32) -> None:
         super().__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(9, channels, 5, stride=2, padding=2),
+            nn.Conv2d(3, channels, 5, stride=2, padding=2),
             nn.GELU(),
             nn.Conv2d(channels, channels, 3, padding=1),
             nn.GELU(),
         )
 
-    def forward(self, frame0: torch.Tensor, frame1: torch.Tensor) -> torch.Tensor:
-        x = torch.cat([frame0, frame1, frame1 - frame0], dim=1)
-        return self.net(x)
+    def forward(self, image: torch.Tensor) -> torch.Tensor:
+        return self.net(image)
 
 
 class FlyVisualEncoder(nn.Module):
@@ -57,15 +56,15 @@ class DepthDecoder(nn.Module):
 
 
 class FlyDepthModel(nn.Module):
-    """frame[t-1], frame[t] -> fly-style activity -> relative depth in [0, 1]."""
+    """RGB image -> fly-style visual activity -> relative depth in [0, 1]."""
 
     def __init__(self, channels: int = 32, activity_dim: int = 64) -> None:
         super().__init__()
-        self.retina = RetinaMotionEncoder(channels)
+        self.retina = RetinaImageEncoder(channels)
         self.fly = FlyVisualEncoder(channels, activity_dim)
         self.decoder = DepthDecoder(activity_dim)
 
-    def forward(self, frame0: torch.Tensor, frame1: torch.Tensor) -> torch.Tensor:
-        retina_features = self.retina(frame0, frame1)
+    def forward(self, image: torch.Tensor) -> torch.Tensor:
+        retina_features = self.retina(image)
         activity = self.fly(retina_features)
-        return self.decoder(activity, frame0.shape[-2:])
+        return self.decoder(activity, image.shape[-2:])
